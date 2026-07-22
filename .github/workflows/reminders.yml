@@ -1,0 +1,16 @@
+# OPTIONAL. Vercel's free plan only runs cron once/day. If you want reminders
+# checked more often (e.g. hourly), use this instead — it just pings your endpoint.
+# Add two repo secrets: APP_URL (https://your-app.vercel.app) and CRON_SECRET (same value as in Vercel).
+name: Deadline reminders
+on:
+  schedule:
+    - cron: "0 * * * *"   # every hour (UTC). GitHub may delay a few minutes.
+  workflow_dispatch: {}     # lets you run it manually from the Actions tab
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger reminder check
+        run: |
+          curl -fsS -X GET "${{ secrets.APP_URL }}/api/reminders" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
