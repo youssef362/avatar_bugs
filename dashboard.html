@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Issue Dashboard</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --line:#262b36; --text:#e7eaf0; --muted:#9aa4b2;
+    --accent:#4f8cff; --ok:#39d98a; --warn:#f4b740; --err:#ff6b6b; --chip:#0f1218;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    background:var(--bg);color:var(--text);padding:24px}
+  header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px}
+  h1{margin:0;font-size:20px}
+  a.newbtn{background:var(--accent);color:#fff;text-decoration:none;padding:9px 14px;border-radius:9px;font-size:14px;font-weight:600}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;min-width:96px}
+  .stat .n{font-size:22px;font-weight:700}
+  .stat .l{font-size:12px;color:var(--muted);margin-top:2px}
+  .stat.overdue .n{color:var(--err)}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{background:transparent;border:0;color:var(--muted);padding:8px 13px;font-size:13px;cursor:pointer}
+  .seg button.active{background:var(--accent);color:#fff}
+  input.search{flex:1;min-width:180px;background:var(--card);border:1px solid var(--line);color:var(--text);
+    border-radius:9px;padding:9px 12px;font-size:14px}
+  input.search:focus{outline:none;border-color:var(--accent)}
+  .wrap{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:14px;min-width:760px}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;user-select:none}
+  th:hover{color:var(--text)}
+  td.title{white-space:normal;min-width:240px}
+  td a{color:var(--text);text-decoration:none;font-weight:600}
+  td a:hover{color:var(--accent)}
+  tr:last-child td{border-bottom:0}
+  .chip{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;background:var(--chip);border:1px solid var(--line)}
+  .chip.Bug{color:#ff9d9d;border-color:#5a2b2b}
+  .chip.Task{color:#9fe3c0;border-color:#2b5a45}
+  .chip.Case{color:#a9c6ff;border-color:#2b3f5a}
+  .st{font-size:12px;font-weight:600}
+  .st.open{color:var(--ok)} .st.closed{color:var(--muted)}
+  .due.overdue{color:var(--err);font-weight:600}
+  .due.soon{color:var(--warn)}
+  .empty,.loading{padding:40px;text-align:center;color:var(--muted)}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>🐞 Issue Dashboard</h1>
+    <a class="newbtn" href="/">+ New report</a>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="controls">
+    <div class="seg" id="stateSeg">
+      <button data-v="all" class="active">All</button>
+      <button data-v="open">Open</button>
+      <button data-v="closed">Closed</button>
+    </div>
+    <div class="seg" id="typeSeg">
+      <button data-v="all" class="active">All types</button>
+      <button data-v="Bug">Bugs</button>
+      <button data-v="Task">Tasks</button>
+      <button data-v="Case">Cases</button>
+    </div>
+    <input class="search" id="search" placeholder="Search title, reporter, assignee…" />
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-k="number">#</th>
+          <th data-k="type">Type</th>
+          <th data-k="title">Title</th>
+          <th data-k="reporter">Reporter</th>
+          <th data-k="assignee">Assignee</th>
+          <th data-k="deadline">Deadline</th>
+          <th data-k="state">Status</th>
+          <th data-k="created_at">Created</th>
+        </tr>
+      </thead>
+      <tbody id="rows"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+<script>
+  let DATA = [];
+  let stateFilter = "all", typeFilter = "all", q = "";
+  let sortKey = "created_at", sortDir = -1;
+
+  const el = (id) => document.getElementById(id);
+  const now = Date.now();
+
+  async function load(){
+    try{
+      const res = await fetch("/api/issues");
+      const d = await res.json();
+      if(!res.ok) throw new Error(d.error || "Failed to load");
+      DATA = d.items;
+      render();
+    }catch(e){
+      el("rows").innerHTML = `<tr><td colspan="8" class="empty">${e.message}</td></tr>`;
+    }
+  }
+
+  function fmtDate(s){ if(!s) return ""; const d=new Date(s); return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}); }
+  function esc(s=""){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+  function dueCell(item){
+    if(!item.deadline) return '<span class="muted">—</span>';
+    const t = new Date(item.deadline).getTime();
+    const overdue = item.state==="open" && t < now;
+    const soon = item.state==="open" && !overdue && (t - now) < 2*864e5;
+    const cls = overdue ? "overdue" : soon ? "soon" : "";
+    return `<span class="due ${cls}">${fmtDate(item.deadline)}${overdue?" ⚠":""}</span>`;
+  }
+
+  function stats(list){
+    const open = list.filter(i=>i.state==="open").length;
+    const closed = list.filter(i=>i.state==="closed").length;
+    const overdue = list.filter(i=>i.state==="open"&&i.deadline&&new Date(i.deadline).getTime()<now).length;
+    el("stats").innerHTML = `
+      <div class="stat"><div class="n">${list.length}</div><div class="l">Total</div></div>
+      <div class="stat"><div class="n" style="color:var(--ok)">${open}</div><div class="l">Open</div></div>
+      <div class="stat"><div class="n" style="color:var(--muted)">${closed}</div><div class="l">Closed</div></div>
+      <div class="stat overdue"><div class="n">${overdue}</div><div class="l">Overdue</div></div>`;
+  }
+
+  function render(){
+    stats(DATA);
+    let list = DATA.filter(i=>{
+      if(stateFilter!=="all" && i.state!==stateFilter) return false;
+      if(typeFilter!=="all" && i.type!==typeFilter) return false;
+      if(q){
+        const hay = (i.title+" "+i.reporter+" "+i.assignee).toLowerCase();
+        if(!hay.includes(q.toLowerCase())) return false;
+      }
+      return true;
+    });
+
+    list.sort((a,b)=>{
+      let x=a[sortKey], y=b[sortKey];
+      if(sortKey==="created_at"||sortKey==="deadline"){ x=x?new Date(x).getTime():0; y=y?new Date(y).getTime():0; }
+      if(typeof x==="string"){ x=x.toLowerCase(); y=(y||"").toLowerCase(); }
+      return x<y? -1*sortDir : x>y? 1*sortDir : 0;
+    });
+
+    if(list.length===0){ el("rows").innerHTML=`<tr><td colspan="8" class="empty">No issues match.</td></tr>`; return; }
+
+    el("rows").innerHTML = list.map(i=>`
+      <tr>
+        <td class="muted">#${i.number}</td>
+        <td><span class="chip ${i.type}">${esc(i.type)}</span></td>
+        <td class="title"><a href="${i.url}" target="_blank">${esc(i.title)}</a></td>
+        <td>${esc(i.reporter)||'<span class="muted">—</span>'}</td>
+        <td>${esc(i.assignee)||'<span class="muted">—</span>'}</td>
+        <td>${dueCell(i)}</td>
+        <td><span class="st ${i.state}">${i.state==="open"?"● Open":"✓ Closed"}</span></td>
+        <td class="muted">${fmtDate(i.created_at)}</td>
+      </tr>`).join("");
+  }
+
+  // wire up filters
+  function seg(id, set){
+    el(id).querySelectorAll("button").forEach(b=>{
+      b.addEventListener("click",()=>{
+        el(id).querySelectorAll("button").forEach(x=>x.classList.remove("active"));
+        b.classList.add("active"); set(b.dataset.v); render();
+      });
+    });
+  }
+  seg("stateSeg", v=>stateFilter=v);
+  seg("typeSeg", v=>typeFilter=v);
+  el("search").addEventListener("input", e=>{ q=e.target.value; render(); });
+  document.querySelectorAll("th").forEach(th=>{
+    th.addEventListener("click",()=>{
+      const k=th.dataset.k;
+      if(sortKey===k) sortDir*=-1; else { sortKey=k; sortDir=1; }
+      render();
+    });
+  });
+
+  load();
+  setInterval(load, 60000); // refresh every minute
+</script>
+</body>
+</html>

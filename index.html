@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Report an Issue</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --line:#262b36; --text:#e7eaf0;
+    --muted:#9aa4b2; --accent:#4f8cff; --accent-2:#2f6fe0; --ok:#39d98a; --err:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .card{width:100%;max-width:520px;background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:28px}
+  h1{margin:0 0 4px;font-size:20px}
+  p.sub{margin:0 0 22px;color:var(--muted);font-size:13px}
+  label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
+  input,textarea,select{width:100%;background:#0f1218;border:1px solid var(--line);
+    color:var(--text);border-radius:10px;padding:11px 12px;font-size:14px;font-family:inherit}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
+  textarea{resize:vertical;min-height:84px}
+  .row{display:flex;gap:12px}
+  .row>div{flex:1}
+  button{width:100%;margin-top:22px;background:var(--accent);color:#fff;border:0;
+    border-radius:10px;padding:13px;font-size:15px;font-weight:600;cursor:pointer}
+  button:hover{background:var(--accent-2)}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .msg{margin-top:16px;font-size:14px;padding:11px 12px;border-radius:10px;display:none}
+  .msg.ok{display:block;background:rgba(57,217,138,.12);color:var(--ok);border:1px solid rgba(57,217,138,.3)}
+  .msg.err{display:block;background:rgba(255,107,107,.12);color:var(--err);border:1px solid rgba(255,107,107,.3)}
+  .msg a{color:inherit;font-weight:600}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Report an Issue</h1>
+    <p class="sub">Logs to the team's GitHub issues and pings our Telegram channel. &nbsp;·&nbsp; <a href="/dashboard.html" style="color:#4f8cff">View dashboard →</a></p>
+
+    <label for="type">Type</label>
+    <select id="type">
+      <option value="Bug">🐞 Bug</option>
+      <option value="Task">✅ Task</option>
+      <option value="Case">📋 Case</option>
+    </select>
+
+    <label for="title">Title *</label>
+    <input id="title" placeholder="Short summary of the issue" />
+
+    <label for="description">Details</label>
+    <textarea id="description" placeholder="Steps to reproduce, expected vs. actual, links…"></textarea>
+
+    <div class="row">
+      <div>
+        <label for="reporter">Your name *</label>
+        <input id="reporter" placeholder="e.g. Mohamed" />
+      </div>
+      <div>
+        <label for="assignee">Assign to</label>
+        <input id="assignee" placeholder="(optional)" />
+      </div>
+    </div>
+
+    <label for="deadline">Deadline (optional — enables reminder)</label>
+    <input id="deadline" type="datetime-local" />
+
+    <button id="submit">Send</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const btn = $("submit");
+  const msg = $("msg");
+
+  function show(type, html){ msg.className = "msg " + type; msg.innerHTML = html; }
+
+  btn.addEventListener("click", async () => {
+    const payload = {
+      type: $("type").value,
+      title: $("title").value.trim(),
+      description: $("description").value.trim(),
+      reporter: $("reporter").value.trim(),
+      assignee: $("assignee").value.trim(),
+      deadline: $("deadline").value || null,
+    };
+    if(!payload.title || !payload.reporter){
+      show("err","Title and your name are required.");
+      return;
+    }
+    btn.disabled = true; btn.textContent = "Sending…"; msg.className="msg";
+    try{
+      const res = await fetch("/api/report", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || "Something went wrong");
+      show("ok", `Reported ✔ ${data.url ? `— <a href="${data.url}" target="_blank">view issue</a>` : ""}`);
+      $("title").value=""; $("description").value=""; $("deadline").value="";
+    }catch(e){
+      show("err", e.message);
+    }finally{
+      btn.disabled = false; btn.textContent = "Send";
+    }
+  });
+</script>
+</body>
+</html>
